@@ -84,6 +84,9 @@ class MerossApp:
             messagebox.showerror("Error", "Could not generate or save encryption key. Credentials will not be saved.")
 
     def _on_closing(self):
+        if self.fade_task and not self.fade_task.done():
+            self.fade_task.cancel()
+
         if self.asyncio_loop and self.asyncio_loop.is_running():
             self.asyncio_loop.call_soon_threadsafe(self.asyncio_loop.stop)
         self.root.destroy()
@@ -103,16 +106,32 @@ class MerossApp:
         self.login_button = ttk.Button(cred_frame, text="Login & Discover Devices", command=self.start_asyncio_and_discover)
         self.login_button.grid(row=2, column=1, pady=10)
 
-        # Lights Frame (placeholder for now)
+        # Lights Frame
         lights_frame = ttk.LabelFrame(self.root, text="Discovered Lights", padding="10")
         lights_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
-        self.lights_listbox = tk.Listbox(lights_frame, selectmode=tk.SINGLE, height=8) # Single select for simplicity
-        self.lights_listbox.pack(fill="both", expand=True)
+        self.lights_checkbox_frame = ttk.Frame(lights_frame)
+        self.lights_checkbox_frame.pack(fill="both", expand=True)
 
-        # Controls Frame (placeholder for now)
+        self.light_vars = []
+
+        # Controls Frame
         controls_frame = ttk.LabelFrame(self.root, text="Controls", padding="10")
         controls_frame.pack(pady=10, padx=10, fill="x")
+
+        self.color_var = tk.StringVar()
+        self.color_dropdown = ttk.Combobox(controls_frame, textvariable=self.color_var)
+        self.color_dropdown['values'] = ["Red", "Green", "Blue", "Yellow", "Cyan", "Magenta", "White"]
+        self.color_dropdown.pack(side="left", padx=5)
+
+        self.set_color_button = ttk.Button(controls_frame, text="Set Color", command=lambda: self.start_asyncio_and_run(self.set_color_selected_light))
+        self.set_color_button.pack(side="left", padx=5)
+
+        self.on_button = ttk.Button(controls_frame, text="On", command=lambda: self.start_asyncio_and_run(self.turn_on_selected_light))
+        self.on_button.pack(side="left", padx=5)
+
+        self.off_button = ttk.Button(controls_frame, text="Off", command=lambda: self.start_asyncio_and_run(self.turn_off_selected_light))
+        self.off_button.pack(side="left", padx=5)
 
         # Log Frame
         log_frame = ttk.LabelFrame(self.root, text="Logs", padding="10")
@@ -202,7 +221,10 @@ class MerossApp:
             return
 
         self.root.after(0, lambda: self.login_button.config(state=tk.DISABLED, text="Logging in..."))
-        self.root.after(0, lambda: self.lights_listbox.delete(0, tk.END))
+        # Clear previous checkboxes
+        for widget in self.lights_checkbox_frame.winfo_children():
+            widget.destroy()
+        self.light_vars = []
         self.controllable_lights = []
 
         try:
@@ -218,7 +240,10 @@ class MerossApp:
                 self.root.after(0, lambda: messagebox.showinfo("Info", "No Meross lights found."))
             else:
                 for light in self.controllable_lights:
-                    self.root.after(0, lambda l=light: self.lights_listbox.insert(tk.END, f"{l.name} (UUID: {l.uuid})"))
+                    var = tk.IntVar()
+                    self.light_vars.append(var)
+                    cb = ttk.Checkbutton(self.lights_checkbox_frame, text=f"{light.name} (UUID: {light.uuid})", variable=var)
+                    cb.pack(anchor="w")
                 logging.info(f"Discovered {len(self.controllable_lights)} controllable light(s).")
             self._save_credentials() # Save credentials after successful login
 
@@ -231,6 +256,70 @@ class MerossApp:
             self.manager = None
         finally:
             self.root.after(0, lambda: self.login_button.config(state=tk.NORMAL, text="Login & Discover Devices"))
+
+    def start_asyncio_and_run(self, coro):
+        if not self.asyncio_loop or not self.asyncio_loop.is_running():
+            logging.error("Asyncio loop not running.")
+            return
+        self.asyncio_loop.call_soon_threadsafe(asyncio.create_task, coro())
+
+    def get_selected_lights(self):
+        selected_lights = []
+        for i, var in enumerate(self.light_vars):
+            if var.get() == 1:
+                selected_lights.append(self.controllable_lights[i])
+        
+        if not selected_lights:
+            messagebox.showwarning("Warning", "Please select at least one light.")
+        
+        return selected_lights
+
+    async def set_color_selected_light(self):
+        lights = self.get_selected_lights()
+        if not lights:
+            return
+
+        color_name = self.color_var.get()
+        if not color_name:
+            messagebox.showwarning("Warning", "Please select a color first.")
+            return
+
+        COLORS = {
+            "Red": (255, 0, 0),
+            "Green": (0, 255, 0),
+            "Blue": (0, 0, 255),
+            "Yellow": (255, 255, 0),
+            "Cyan": (0, 255, 255),
+            "Magenta": (255, 0, 255),
+            "White": (255, 255, 255),
+        }
+        rgb = COLORS.get(color_name)
+
+        if rgb:
+            for light in lights:
+                try:
+                    await light.async_set_light_color(rgb=rgb)
+                    logging.info(f"Set color of {light.name} to {color_name}.")
+                except Exception as e:
+                    logging.error(f"Failed to set color of {light.name}: {e}")
+
+    async def turn_on_selected_light(self):
+        lights = self.get_selected_lights()
+        for light in lights:
+            try:
+                await light.async_turn_on()
+                logging.info(f"{light.name} turned on.")
+            except Exception as e:
+                logging.error(f"Failed to turn on {light.name}: {e}")
+
+    async def turn_off_selected_light(self):
+        lights = self.get_selected_lights()
+        for light in lights:
+            try:
+                await light.async_turn_off()
+                logging.info(f"{light.name} turned off.")
+            except Exception as e:
+                logging.error(f"Failed to turn off {light.name}: {e}")
 
 def run_app():
     root = tk.Tk()
