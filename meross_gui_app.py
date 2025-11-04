@@ -59,6 +59,7 @@ class MerossApp:
         self.asyncio_loop = None
         self.asyncio_thread = None
         self.fade_task = None # Initialize fade_task
+        self.active_effect_lights = []
 
         self._create_widgets()
         self._setup_logging()
@@ -132,6 +133,17 @@ class MerossApp:
 
         self.off_button = ttk.Button(controls_frame, text="Off", command=lambda: self.start_asyncio_and_run(self.turn_off_selected_light))
         self.off_button.pack(side="left", padx=5)
+
+        self.effect_var = tk.StringVar(value="Flashing")
+        self.effect_dropdown = ttk.Combobox(controls_frame, textvariable=self.effect_var)
+        self.effect_dropdown['values'] = ["Flashing"]
+        self.effect_dropdown.pack(side="left", padx=5)
+
+        self.run_effect_button = ttk.Button(controls_frame, text="Run Effect", command=lambda: self.start_asyncio_and_run(self.run_selected_effect))
+        self.run_effect_button.pack(side="left", padx=5)
+
+        self.stop_effect_button = ttk.Button(controls_frame, text="Stop Effect", command=self.stop_effect)
+        self.stop_effect_button.pack(side="left", padx=5)
 
         # Log Frame
         log_frame = ttk.LabelFrame(self.root, text="Logs", padding="10")
@@ -320,6 +332,48 @@ class MerossApp:
                 logging.info(f"{light.name} turned off.")
             except Exception as e:
                 logging.error(f"Failed to turn off {light.name}: {e}")
+
+    def run_selected_effect(self):
+        lights = self.get_selected_lights()
+        if not lights:
+            return
+        self.active_effect_lights = lights # Store the lights involved in the effect
+
+        effect = self.effect_var.get()
+        if effect == "Flashing":
+            self.fade_task = self.asyncio_loop.create_task(self.flashing_selected_lights())
+
+    def stop_effect(self):
+        if self.fade_task and not self.fade_task.done():
+            self.fade_task.cancel()
+            logging.info("Active effect stopped.")
+        
+        # Explicitly turn off all lights that were part of the effect
+        for light in self.active_effect_lights:
+            try:
+                # Use asyncio.run_coroutine_threadsafe to safely turn off lights
+                asyncio.run_coroutine_threadsafe(light.async_turn_off(), self.asyncio_loop)
+                logging.info(f"Turned off {light.name}.")
+            except Exception as e:
+                logging.error(f"Failed to turn off {light.name}: {e}")
+        self.active_effect_lights = [] # Clear the list of active effect lights
+
+    async def flashing_selected_lights(self):
+        lights = self.get_selected_lights()
+        if not lights:
+            return
+
+        logging.info(f"Starting flashing effect for selected lights.")
+        try:
+            while True:
+                for light in lights:
+                    await light.async_turn_on()
+                await asyncio.sleep(0.5)
+                for light in lights:
+                    await light.async_turn_off()
+                await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            logging.info("Flashing effect stopped.")
 
 def run_app():
     root = tk.Tk()
