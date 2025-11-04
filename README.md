@@ -1,5 +1,4 @@
-# meross-lights
-
+ Meross-Lights
 - controll you meross lights will keep adding as i go                     │
 │     1 + # Meross Light Controller GUI App                                       │
 │     2                                                                           │
