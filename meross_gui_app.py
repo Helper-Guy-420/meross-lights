@@ -5,8 +5,6 @@ import threading
 import logging
 import json
 import os
-import requests
-import subprocess
 import sys
 
 from meross_iot.controller.mixins.light import LightMixin
@@ -60,6 +58,7 @@ class MerossApp:
 
         self.asyncio_loop = None
         self.asyncio_thread = None
+        self.fade_task = None # Initialize fade_task
 
         self._create_widgets()
         self._setup_logging()
@@ -104,40 +103,16 @@ class MerossApp:
         self.login_button = ttk.Button(cred_frame, text="Login & Discover Devices", command=self.start_asyncio_and_discover)
         self.login_button.grid(row=2, column=1, pady=10)
 
-        # Lights Frame
+        # Lights Frame (placeholder for now)
         lights_frame = ttk.LabelFrame(self.root, text="Discovered Lights", padding="10")
         lights_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
         self.lights_listbox = tk.Listbox(lights_frame, selectmode=tk.SINGLE, height=8) # Single select for simplicity
         self.lights_listbox.pack(fill="both", expand=True)
 
-        # Controls Frame
+        # Controls Frame (placeholder for now)
         controls_frame = ttk.LabelFrame(self.root, text="Controls", padding="10")
         controls_frame.pack(pady=10, padx=10, fill="x")
-
-        self.on_button = ttk.Button(controls_frame, text="On", command=lambda: self.start_asyncio_and_run(self.turn_on_selected_light))
-        self.on_button.pack(side="left", padx=5)
-
-        self.off_button = ttk.Button(controls_frame, text="Off", command=lambda: self.start_asyncio_and_run(self.turn_off_selected_light))
-        self.off_button.pack(side="left", padx=5)
-
-        self.color_var = tk.StringVar()
-        self.color_dropdown = ttk.Combobox(controls_frame, textvariable=self.color_var)
-        self.color_dropdown['values'] = ["Red", "Green", "Blue", "Yellow", "Cyan", "Magenta", "White"]
-        self.color_dropdown.pack(side="left", padx=5)
-
-        self.set_color_button = ttk.Button(controls_frame, text="Set Color", command=lambda: self.start_asyncio_and_run(self.set_color_selected_light))
-        self.set_color_button.pack(side="left", padx=5)
-
-        self.brightness_var = tk.IntVar(value=10)
-        self.brightness_slider = ttk.Scale(controls_frame, from_=1, to=10, variable=self.brightness_var, orient=tk.HORIZONTAL)
-        self.brightness_slider.pack(side="left", padx=5)
-
-        self.set_brightness_button = ttk.Button(controls_frame, text="Set Brightness", command=lambda: self.start_asyncio_and_run(self.set_brightness_selected_light))
-        self.set_brightness_button.pack(side="left", padx=5)
-
-        self.update_button = ttk.Button(controls_frame, text="Check for Updates", command=self.check_for_updates)
-        self.update_button.pack(side="right", padx=5)
 
         # Log Frame
         log_frame = ttk.LabelFrame(self.root, text="Logs", padding="10")
@@ -145,54 +120,6 @@ class MerossApp:
 
         self.log_text = scrolledtext.ScrolledText(log_frame, width=70, height=10, state='disabled')
         self.log_text.pack(fill="both", expand=True)
-
-    def check_for_updates(self):
-        # Replace with the raw URL to your version.json file on GitHub
-        version_url = "https://raw.githubusercontent.com/Helper-Guy-420/meross-lights/refs/heads/main/version.json"
-        try:
-            response = requests.get(version_url)
-            response.raise_for_status() # Raise an exception for bad status codes
-            remote_version = response.json()["version"]
-
-            with open("version.json", "r") as f:
-                local_version = json.load(f)["version"]
-
-            if remote_version > local_version:
-                if messagebox.askyesno("Update Available", f"A new version ({remote_version}) is available. Do you want to update?"):
-                    self.apply_update(remote_version)
-            else:
-                messagebox.showinfo("No Updates", "You are already running the latest version.")
-
-        except requests.exceptions.RequestException as e:
-            messagebox.showerror("Update Error", f"Failed to check for updates: {e}")
-        except (IOError, json.JSONDecodeError) as e:
-            messagebox.showerror("Update Error", f"Failed to read version files: {e}")
-
-    def apply_update(self, remote_version):
-        # Replace with the raw URL to your meross_gui_app.py file on GitHub
-        update_url = "https://raw.githubusercontent.com/Helper-Guy-420/meross-lights/refs/heads/main/meross_gui_app.py"
-        try:
-            response = requests.get(update_url)
-            response.raise_for_status()
-
-            with open("meross_gui_app.py", "w") as f:
-                f.write(response.text)
-
-            with open("version.json", "w") as f:
-                json.dump({"version": remote_version}, f)
-
-            messagebox.showinfo("Update Complete", "The application has been updated. It will now restart.")
-            self.restart_app()
-
-        except requests.exceptions.RequestException as e:
-            messagebox.showerror("Update Error", f"Failed to download the update: {e}")
-        except IOError as e:
-            messagebox.showerror("Update Error", f"Failed to write the update: {e}")
-
-    def restart_app(self):
-        python = sys.executable
-        os.execl(python, python, *sys.argv)
-
 
     def _setup_logging(self):
         # Remove default handlers
@@ -262,81 +189,6 @@ class MerossApp:
         self.asyncio_thread.start()
         self.asyncio_loop.call_soon_threadsafe(asyncio.create_task, self._discover_devices_async())
 
-    def start_asyncio_and_run(self, coro):
-        if not self.asyncio_loop or not self.asyncio_loop.is_running():
-            logging.error("Asyncio loop not running.")
-            return
-        self.asyncio_loop.call_soon_threadsafe(asyncio.create_task, coro())
-
-    def get_selected_light(self):
-        selected_indices = self.lights_listbox.curselection()
-        if not selected_indices:
-            messagebox.showwarning("Warning", "Please select a light first.")
-            return None
-        
-        light_index = selected_indices[0]
-        return self.controllable_lights[light_index]
-
-    async def turn_on_selected_light(self):
-        light = self.get_selected_light()
-        if light:
-            try:
-                await light.async_turn_on()
-                logging.info(f"{light.name} turned on.")
-            except Exception as e:
-                logging.error(f"Failed to turn on {light.name}: {e}")
-
-    async def turn_off_selected_light(self):
-        light = self.get_selected_light()
-        if light:
-            try:
-                await light.async_turn_off()
-                logging.info(f"{light.name} turned off.")
-            except Exception as e:
-                logging.error(f"Failed to turn off {light.name}: {e}")
-
-    async def set_color_selected_light(self):
-        light = self.get_selected_light()
-        if not light:
-            return
-
-        color_name = self.color_var.get()
-        if not color_name:
-            messagebox.showwarning("Warning", "Please select a color first.")
-            return
-
-        COLORS = {
-            "Red": (255, 0, 0),
-            "Green": (0, 255, 0),
-            "Blue": (0, 0, 255),
-            "Yellow": (255, 255, 0),
-            "Cyan": (0, 255, 255),
-            "Magenta": (255, 0, 255),
-            "White": (255, 255, 255),
-        }
-        rgb = COLORS.get(color_name)
-
-        if rgb:
-            try:
-                await light.async_set_light_color(rgb=rgb)
-                logging.info(f"Set color of {light.name} to {color_name}.")
-            except Exception as e:
-                logging.error(f"Failed to set color of {light.name}: {e}")
-
-    async def set_brightness_selected_light(self):
-        light = self.get_selected_light()
-        if not light:
-            return
-
-        brightness_1_10 = self.brightness_var.get()
-        luminance_0_100 = brightness_1_10 * 10 # Convert 1-10 to 0-100
-
-        try:
-            await light.async_set_light_color(luminance=luminance_0_100)
-            logging.info(f"Set brightness of {light.name} to {brightness_1_10}/10 ({luminance_0_100}%).")
-        except Exception as e:
-            logging.error(f"Failed to set brightness of {light.name}: {e}")
-
     def _run_asyncio_loop(self):
         asyncio.set_event_loop(self.asyncio_loop)
         self.asyncio_loop.run_forever()
@@ -386,4 +238,8 @@ def run_app():
     root.mainloop()
 
 if __name__ == "__main__":
-    run_app()
+    try:
+        run_app()
+    except Exception as e:
+        logging.error(f"An unhandled error occurred: {e}")
+        sys.exit(1)
