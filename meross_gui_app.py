@@ -129,6 +129,13 @@ class MerossApp:
         self.set_color_button = ttk.Button(controls_frame, text="Set Color", command=lambda: self.start_asyncio_and_run(self.set_color_selected_light))
         self.set_color_button.pack(side="left", padx=5)
 
+        self.brightness_var = tk.IntVar(value=10)
+        self.brightness_slider = ttk.Scale(controls_frame, from_=1, to=10, variable=self.brightness_var, orient=tk.HORIZONTAL)
+        self.brightness_slider.pack(side="left", padx=5)
+
+        self.set_brightness_button = ttk.Button(controls_frame, text="Set Brightness", command=lambda: self.start_asyncio_and_run(self.set_brightness_selected_light))
+        self.set_brightness_button.pack(side="left", padx=5)
+
         self.update_button = ttk.Button(controls_frame, text="Check for Updates", command=self.check_for_updates)
         self.update_button.pack(side="right", padx=5)
 
@@ -141,7 +148,7 @@ class MerossApp:
 
     def check_for_updates(self):
         # Replace with the raw URL to your version.json file on GitHub
-        version_url = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPOSITORY/main/version.json"
+        version_url = "https://raw.githubusercontent.com/Helper-Guy-420/meross-lights/refs/heads/main/version.json"
         try:
             response = requests.get(version_url)
             response.raise_for_status() # Raise an exception for bad status codes
@@ -163,7 +170,7 @@ class MerossApp:
 
     def apply_update(self, remote_version):
         # Replace with the raw URL to your meross_gui_app.py file on GitHub
-        update_url = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPOSITORY/main/meross_gui_app.py"
+        update_url = "https://raw.githubusercontent.com/Helper-Guy-420/meross-lights/refs/heads/main/meross_gui_app.py"
         try:
             response = requests.get(update_url)
             response.raise_for_status()
@@ -315,6 +322,20 @@ class MerossApp:
                 logging.info(f"Set color of {light.name} to {color_name}.")
             except Exception as e:
                 logging.error(f"Failed to set color of {light.name}: {e}")
+
+    async def set_brightness_selected_light(self):
+        light = self.get_selected_light()
+        if not light:
+            return
+
+        brightness_1_10 = self.brightness_var.get()
+        luminance_0_100 = brightness_1_10 * 10 # Convert 1-10 to 0-100
+
+        try:
+            await light.async_set_light_color(luminance=luminance_0_100)
+            logging.info(f"Set brightness of {light.name} to {brightness_1_10}/10 ({luminance_0_100}%).")
+        except Exception as e:
+            logging.error(f"Failed to set brightness of {light.name}: {e}")
 
     def _run_asyncio_loop(self):
         asyncio.set_event_loop(self.asyncio_loop)
